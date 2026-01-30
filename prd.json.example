@@ -1,0 +1,43 @@
+{
+  "featureName": "User Dashboard",
+  "branchName": "feature/user-dashboard",
+  "description": "Add a user dashboard with profile settings and activity feed",
+  "userStories": [
+    {
+      "id": "story-1",
+      "title": "Create dashboard layout",
+      "description": "Create the basic dashboard page layout with sidebar navigation",
+      "acceptanceCriteria": [
+        "Dashboard page renders at /dashboard",
+        "Sidebar shows navigation links",
+        "Main content area is responsive"
+      ],
+      "priority": 1,
+      "passes": false
+    },
+    {
+      "id": "story-2",
+      "title": "Add user profile section",
+      "description": "Display user profile information with avatar and name",
+      "acceptanceCriteria": [
+        "Profile section shows user avatar",
+        "User name and email are displayed",
+        "Edit profile button is visible"
+      ],
+      "priority": 2,
+      "passes": false
+    },
+    {
+      "id": "story-3",
+      "title": "Implement activity feed",
+      "description": "Show recent user activity in a scrollable feed",
+      "acceptanceCriteria": [
+        "Activity feed displays last 10 activities",
+        "Each activity shows timestamp",
+        "Feed is scrollable"
+      ],
+      "priority": 3,
+      "passes": false
+    }
+  ]
+}
