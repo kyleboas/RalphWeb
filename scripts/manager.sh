@@ -143,8 +143,9 @@ GOOD stories (right-sized):
 Write the prd.json file now. Output ONLY valid JSON, no markdown code fences."
 
 # Run claude with the meta-prompt
+# Grant write permission for creating prd.json
 cd "$REPO_PATH"
-echo "$META_PROMPT" | claude -p . --print
+echo "$META_PROMPT" | claude -p . --print --allowed-tools "Write"
 
 echo ""
 echo "Manager completed. prd.json has been created."
