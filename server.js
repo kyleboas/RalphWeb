@@ -6,6 +6,9 @@ const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
 const { spawn, exec } = require('child_process');
+const session = require('express-session');
+const passport = require('passport');
+const GitHubStrategy = require('passport-github2').Strategy;
 
 require('dotenv').config();
 
@@ -120,17 +123,26 @@ async function getInstallationToken() {
   });
 }
 
-// Configure git to use GitHub App token for a repo
-async function configureGitAuth(repoPath) {
-  const token = await getInstallationToken();
-  if (!token) {
-    // Fall back to GITHUB_TOKEN if set
-    if (process.env.GITHUB_TOKEN) {
-      return { token: process.env.GITHUB_TOKEN, method: 'pat' };
-    }
-    return { token: null, method: 'none' };
+// Configure git to use GitHub token for a repo
+// Priority: userOAuthToken > GitHub App token > GITHUB_TOKEN env var
+async function configureGitAuth(repoPath, userOAuthToken = null) {
+  // First priority: user's OAuth token from sign-in
+  if (userOAuthToken) {
+    return { token: userOAuthToken, method: 'oauth' };
   }
-  return { token, method: 'app' };
+
+  // Second priority: GitHub App installation token
+  const token = await getInstallationToken();
+  if (token) {
+    return { token, method: 'app' };
+  }
+
+  // Third priority: Personal Access Token from environment
+  if (process.env.GITHUB_TOKEN) {
+    return { token: process.env.GITHUB_TOKEN, method: 'pat' };
+  }
+
+  return { token: null, method: 'none' };
 }
 
 const app = express();
@@ -151,6 +163,83 @@ const activeJobs = new Map();
 let jobIdCounter = 1;
 
 app.use(express.json());
+
+// Session configuration
+const sessionMiddleware = session({
+  secret: process.env.SESSION_SECRET || crypto.randomBytes(32).toString('hex'),
+  resave: false,
+  saveUninitialized: false,
+  cookie: {
+    secure: process.env.NODE_ENV === 'production',
+    httpOnly: true,
+    maxAge: 7 * 24 * 60 * 60 * 1000 // 7 days
+  }
+});
+app.use(sessionMiddleware);
+
+// Initialize Passport
+app.use(passport.initialize());
+app.use(passport.session());
+
+// Store for user GitHub tokens (user ID -> access token)
+const userGitHubTokens = new Map();
+
+// Passport serialization
+passport.serializeUser((user, done) => {
+  done(null, user);
+});
+
+passport.deserializeUser((user, done) => {
+  done(null, user);
+});
+
+// GitHub OAuth Strategy
+if (process.env.GITHUB_CLIENT_ID && process.env.GITHUB_CLIENT_SECRET) {
+  passport.use(new GitHubStrategy({
+      clientID: process.env.GITHUB_CLIENT_ID,
+      clientSecret: process.env.GITHUB_CLIENT_SECRET,
+      callbackURL: process.env.GITHUB_CALLBACK_URL || '/auth/github/callback',
+      scope: ['user:email', 'repo']
+    },
+    (accessToken, refreshToken, profile, done) => {
+      // Store the user's GitHub access token for later use
+      const user = {
+        id: profile.id,
+        username: profile.username,
+        displayName: profile.displayName || profile.username,
+        avatar: profile.photos && profile.photos[0] ? profile.photos[0].value : null,
+        email: profile.emails && profile.emails[0] ? profile.emails[0].value : null
+      };
+
+      // Store the access token associated with this user
+      userGitHubTokens.set(user.id, accessToken);
+
+      return done(null, user);
+    }
+  ));
+  console.log('GitHub OAuth configured');
+} else {
+  console.log('GitHub OAuth not configured (missing GITHUB_CLIENT_ID or GITHUB_CLIENT_SECRET)');
+}
+
+// Authentication middleware
+function requireAuth(req, res, next) {
+  if (req.isAuthenticated()) {
+    return next();
+  }
+  res.status(401).json({ error: 'Authentication required' });
+}
+
+// Optional auth middleware - adds user to request if logged in
+function optionalAuth(req, res, next) {
+  next();
+}
+
+// Get user's GitHub token for API calls
+function getUserGitHubToken(userId) {
+  return userGitHubTokens.get(userId);
+}
+
 app.use(express.static(path.join(__dirname, 'public')));
 
 // Broadcast to all WebSocket clients
@@ -161,6 +250,55 @@ function broadcast(data) {
     }
   });
 }
+
+// =====================
+// Authentication Routes
+// =====================
+
+// Start GitHub OAuth flow
+app.get('/auth/github', passport.authenticate('github', {
+  scope: ['user:email', 'repo']
+}));
+
+// GitHub OAuth callback
+app.get('/auth/github/callback',
+  passport.authenticate('github', { failureRedirect: '/?error=auth_failed' }),
+  (req, res) => {
+    // Successful authentication
+    res.redirect('/');
+  }
+);
+
+// Get current user info
+app.get('/api/auth/user', (req, res) => {
+  if (req.isAuthenticated()) {
+    res.json({
+      authenticated: true,
+      user: req.user,
+      hasGitHubToken: userGitHubTokens.has(req.user.id)
+    });
+  } else {
+    res.json({ authenticated: false, user: null });
+  }
+});
+
+// Logout
+app.post('/auth/logout', (req, res) => {
+  if (req.user) {
+    // Remove stored GitHub token
+    userGitHubTokens.delete(req.user.id);
+  }
+  req.logout((err) => {
+    if (err) {
+      return res.status(500).json({ error: 'Logout failed' });
+    }
+    res.json({ success: true });
+  });
+});
+
+// =====================
+// Repository API Routes
+// =====================
 
 // API: List repositories
 app.get('/api/repos', (req, res) => {
@@ -236,20 +374,46 @@ app.get('/api/jobs', (req, res) => {
 });
 
 // API: Clone a repository
-app.post('/api/repos/clone', (req, res) => {
+app.post('/api/repos/clone', async (req, res) => {
   const { url } = req.body;
   if (!url) return res.status(400).json({ error: 'URL required' });
 
   const repoName = url.split('/').pop().replace('.git', '');
   const repoPath = path.join(REPOS_DIR, repoName);
 
-  const proc = spawn('git', ['clone', url, repoPath]);
+  // Get user's OAuth token if logged in for private repo access
+  const userOAuthToken = req.user ? getUserGitHubToken(req.user.id) : null;
+  const auth = await configureGitAuth(null, userOAuthToken);
+
+  let cloneUrl = url;
+
+  // Add authentication to URL if we have a token
+  if (auth.token && url.includes('github.com')) {
+    // Convert SSH URL to HTTPS if needed
+    if (cloneUrl.startsWith('git@github.com:')) {
+      cloneUrl = cloneUrl.replace('git@github.com:', 'https://github.com/');
+    }
+    // Add token to HTTPS URL
+    if (cloneUrl.startsWith('https://github.com')) {
+      cloneUrl = cloneUrl.replace('https://github.com', `https://x-access-token:${auth.token}@github.com`);
+    }
+  }
+
+  const proc = spawn('git', ['clone', cloneUrl, repoPath]);
+
+  let stderr = '';
+  proc.stderr.on('data', data => {
+    stderr += data.toString();
+  });
 
   proc.on('close', code => {
     if (code === 0) {
       res.json({ success: true, name: repoName, path: repoPath });
     } else {
-      res.status(500).json({ error: 'Clone failed' });
+      const errorMsg = stderr.includes('Authentication failed') || stderr.includes('could not read')
+        ? 'Clone failed - authentication required. Please sign in with GitHub.'
+        : 'Clone failed';
+      res.status(500).json({ error: errorMsg });
     }
   });
 });
@@ -560,8 +724,11 @@ app.post('/api/repos/:name/git/push', async (req, res) => {
       targetBranch = current.stdout;
     }
 
-    // Get authentication
-    const auth = await configureGitAuth(repoPath);
+    // Get user's OAuth token if logged in
+    const userOAuthToken = req.user ? getUserGitHubToken(req.user.id) : null;
+
+    // Get authentication (uses OAuth token if available)
+    const auth = await configureGitAuth(repoPath, userOAuthToken);
 
     if (auth.token) {
       // Get the remote URL and modify it to include the token
