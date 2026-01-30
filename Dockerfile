@@ -13,8 +13,8 @@ WORKDIR /app
 # Copy package files
 COPY package*.json ./
 
-# Install dependencies
-RUN npm ci --only=production
+# Switched from 'npm ci' to 'npm install' to fix missing lockfile error
+RUN npm install --only=production
 
 # Copy application files
 COPY . .
