@@ -437,11 +437,174 @@
       .stats-grid { grid-template-columns: 1fr; }
       .btn { padding: 8px 12px; font-size: 13px; }
     }
+
+    .repo-selector {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-top: 12px;
+    }
+
+    .repo-selector select {
+      flex: 1;
+      padding: 10px 12px;
+      border: 1px solid rgba(255,255,255,0.1);
+      border-radius: 10px;
+      background: rgba(0,0,0,0.3);
+      color: #e8e8e8;
+      font-size: 14px;
+      -webkit-appearance: none;
+      appearance: none;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' fill='%23888' viewBox='0 0 16 16'%3E%3Cpath d='M8 11L3 6h10l-5 5z'/%3E%3C/svg%3E");
+      background-repeat: no-repeat;
+      background-position: right 12px center;
+      padding-right: 32px;
+    }
+
+    .repo-branch {
+      font-size: 12px;
+      color: #888;
+      background: rgba(255,255,255,0.1);
+      padding: 4px 10px;
+      border-radius: 6px;
+      white-space: nowrap;
+    }
+
+    .git-section {
+      margin-top: 16px;
+      padding-top: 16px;
+      border-top: 1px solid rgba(255,255,255,0.1);
+    }
+
+    .git-status {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-bottom: 12px;
+    }
+
+    .git-status-item {
+      font-size: 12px;
+      padding: 4px 10px;
+      border-radius: 6px;
+      background: rgba(255,255,255,0.05);
+    }
+
+    .git-status-item.changes { background: rgba(245, 158, 11, 0.2); color: #f59e0b; }
+    .git-status-item.clean { background: rgba(74, 222, 128, 0.2); color: #4ade80; }
+    .git-status-item.ahead { background: rgba(96, 165, 250, 0.2); color: #60a5fa; }
+    .git-status-item.behind { background: rgba(248, 113, 113, 0.2); color: #f87171; }
+
+    .git-actions {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .git-actions .btn {
+      flex: 1;
+      min-width: 100px;
+    }
+
+    .commit-form {
+      margin-bottom: 12px;
+    }
+
+    .commit-form input {
+      width: 100%;
+      margin-bottom: 8px;
+    }
+
+    .branch-select {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 12px;
+    }
+
+    .branch-select select {
+      flex: 1;
+      padding: 10px 12px;
+      border: 1px solid rgba(255,255,255,0.1);
+      border-radius: 10px;
+      background: rgba(0,0,0,0.3);
+      color: #e8e8e8;
+      font-size: 14px;
+      -webkit-appearance: none;
+      appearance: none;
+    }
+
+    .files-list {
+      max-height: 150px;
+      overflow-y: auto;
+      margin-bottom: 12px;
+      font-size: 12px;
+    }
+
+    .file-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 0;
+      border-bottom: 1px solid rgba(255,255,255,0.05);
+    }
+
+    .file-status {
+      font-family: monospace;
+      font-size: 11px;
+      padding: 2px 6px;
+      border-radius: 4px;
+      background: rgba(255,255,255,0.1);
+    }
+
+    .file-status.M { background: rgba(245, 158, 11, 0.3); color: #f59e0b; }
+    .file-status.A { background: rgba(74, 222, 128, 0.3); color: #4ade80; }
+    .file-status.D { background: rgba(248, 113, 113, 0.3); color: #f87171; }
+    .file-status.U { background: rgba(96, 165, 250, 0.3); color: #60a5fa; }
+
+    .commit-log {
+      max-height: 150px;
+      overflow-y: auto;
+    }
+
+    .commit-item {
+      display: flex;
+      gap: 8px;
+      padding: 8px 0;
+      border-bottom: 1px solid rgba(255,255,255,0.05);
+      font-size: 12px;
+    }
+
+    .commit-hash {
+      font-family: monospace;
+      color: #60a5fa;
+    }
+
+    .commit-message {
+      flex: 1;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .commit-date {
+      color: #666;
+      white-space: nowrap;
+    }
+
+    .settings-status {
+      margin-bottom: 12px;
+    }
   </style>
 </head>
 <body>
   <div class="header">
     <h1><span class="status-dot" id="connStatus"></span> Ralph Dashboard</h1>
+    <div class="repo-selector">
+      <select id="activeRepoSelect" onchange="selectActiveRepo(this.value)">
+        <option value="">Select repository...</option>
+      </select>
+      <span class="repo-branch" id="activeBranchLabel"></span>
+    </div>
     <div class="budget-bar">
       <div class="budget-fill" id="budgetFill" style="width: 100%"></div>
     </div>
@@ -455,6 +618,7 @@
       <button class="tab active" data-tab="repos">Repos</button>
       <button class="tab" data-tab="jobs">Jobs</button>
       <button class="tab" data-tab="logs">Logs</button>
+      <button class="tab" data-tab="settings">Settings</button>
     </div>
 
     <!-- Repos Tab -->
@@ -516,6 +680,56 @@
         </div>
       </div>
     </div>
+
+    <!-- Settings Tab -->
+    <div class="tab-content" id="tab-settings">
+      <div class="section">
+        <div class="section-title">GitHub App Configuration</div>
+        <p style="font-size:13px; color:#888; margin-bottom:16px">
+          Configure a GitHub App to enable push/commit to your repositories.
+          <a href="https://github.com/settings/apps/new" target="_blank" style="color:#60a5fa">Create a GitHub App</a>
+        </p>
+
+        <div class="settings-status" id="githubAuthStatus">
+          <span class="git-status-item">Checking...</span>
+        </div>
+
+        <div style="margin-top:16px">
+          <label style="font-size:13px; color:#888; display:block; margin-bottom:6px">App ID</label>
+          <input type="text" id="githubAppId" placeholder="123456">
+        </div>
+
+        <div style="margin-top:12px">
+          <label style="font-size:13px; color:#888; display:block; margin-bottom:6px">Installation ID</label>
+          <input type="text" id="githubInstallationId" placeholder="12345678">
+          <p style="font-size:11px; color:#666; margin-top:4px">
+            Find this in the URL when viewing your app installation: github.com/settings/installations/<strong>ID</strong>
+          </p>
+        </div>
+
+        <div style="margin-top:12px">
+          <label style="font-size:13px; color:#888; display:block; margin-bottom:6px">Private Key (.pem)</label>
+          <textarea id="githubPrivateKey" placeholder="-----BEGIN RSA PRIVATE KEY-----&#10;...&#10;-----END RSA PRIVATE KEY-----" style="min-height:120px; font-family:monospace; font-size:11px"></textarea>
+          <p style="font-size:11px; color:#666; margin-top:4px">
+            Generate a private key in your GitHub App settings
+          </p>
+        </div>
+
+        <div style="margin-top:16px; display:flex; gap:8px">
+          <button class="btn btn-primary" style="flex:1" onclick="saveGitHubSettings()">Save Settings</button>
+          <button class="btn btn-outline" onclick="testGitHubConnection()">Test Connection</button>
+        </div>
+      </div>
+
+      <div class="section">
+        <div class="section-title">Required Permissions</div>
+        <ul style="font-size:13px; color:#aaa; margin:0; padding-left:20px">
+          <li style="margin-bottom:8px"><strong>Contents:</strong> Read and write</li>
+          <li style="margin-bottom:8px"><strong>Metadata:</strong> Read-only</li>
+          <li style="margin-bottom:8px"><strong>Pull requests:</strong> Read and write (optional)</li>
+        </ul>
+      </div>
+    </div>
   </div>
 
   <!-- New Task Modal -->
@@ -549,6 +763,53 @@
           </div>
           <div id="backToStories" style="display:none; margin-top:8px">
             <button class="btn btn-outline" style="width:100%" onclick="showStories()">Back to Stories</button>
+          </div>
+        </div>
+
+        <!-- Git Section -->
+        <div class="git-section" id="gitSection">
+          <div class="section-title">Git Operations</div>
+
+          <div class="branch-select">
+            <select id="branchSelect" onchange="switchBranch(this.value)">
+              <option value="">Loading branches...</option>
+            </select>
+            <button class="btn btn-outline" onclick="showNewBranchForm()">+ New</button>
+          </div>
+
+          <div id="newBranchForm" style="display:none; margin-bottom:12px">
+            <div class="input-group">
+              <input type="text" id="newBranchName" placeholder="New branch name...">
+              <button class="btn btn-primary" onclick="createBranch()">Create</button>
+            </div>
+          </div>
+
+          <div class="git-status" id="gitStatus">
+            <span class="git-status-item">Loading...</span>
+          </div>
+
+          <div class="files-list" id="changedFilesList" style="display:none">
+          </div>
+
+          <div class="commit-form" id="commitForm" style="display:none">
+            <input type="text" id="commitMessage" placeholder="Commit message...">
+            <div class="git-actions">
+              <button class="btn btn-success" onclick="commitChanges()">Commit</button>
+              <button class="btn btn-outline" onclick="hideCommitForm()">Cancel</button>
+            </div>
+          </div>
+
+          <div class="git-actions" id="gitActions">
+            <button class="btn btn-outline" id="btnShowCommit" onclick="showCommitForm()" disabled>Commit</button>
+            <button class="btn btn-primary" id="btnPush" onclick="pushChanges()" disabled>Push</button>
+            <button class="btn btn-outline" id="btnPull" onclick="pullChanges()">Pull</button>
+          </div>
+
+          <div style="margin-top: 16px">
+            <div class="section-title">Recent Commits</div>
+            <div class="commit-log" id="commitLog">
+              <div style="color:#666">Loading...</div>
+            </div>
           </div>
         </div>
       </div>
@@ -844,17 +1105,450 @@
       loadJobs();
     }
 
+    // Git Operations
+    let activeRepo = null;
+    let gitStatusData = null;
+
+    async function selectActiveRepo(repoName) {
+      if (!repoName) {
+        activeRepo = null;
+        document.getElementById('activeBranchLabel').textContent = '';
+        return;
+      }
+      activeRepo = repoName;
+      await loadGitStatus(repoName);
+    }
+
+    async function loadGitStatus(repoName) {
+      if (!repoName) return;
+
+      try {
+        const [statusRes, branchesRes, logRes] = await Promise.all([
+          fetch(`/api/repos/${repoName}/git/status`),
+          fetch(`/api/repos/${repoName}/git/branches`),
+          fetch(`/api/repos/${repoName}/git/log?limit=5`)
+        ]);
+
+        const status = await statusRes.json();
+        const branches = await branchesRes.json();
+        const log = await logRes.json();
+
+        gitStatusData = status;
+
+        // Update header branch label
+        document.getElementById('activeBranchLabel').textContent = status.branch || '';
+
+        // Update branch select in modal
+        const branchSelect = document.getElementById('branchSelect');
+        branchSelect.innerHTML = branches.branches.map(b =>
+          `<option value="${b}" ${b === branches.current ? 'selected' : ''}>${b}</option>`
+        ).join('');
+
+        // Update git status indicators
+        const statusEl = document.getElementById('gitStatus');
+        let statusHtml = '';
+
+        if (status.clean) {
+          statusHtml += '<span class="git-status-item clean">Clean</span>';
+        } else {
+          statusHtml += `<span class="git-status-item changes">${status.changes} changed</span>`;
+        }
+
+        if (status.ahead > 0) {
+          statusHtml += `<span class="git-status-item ahead">${status.ahead} ahead</span>`;
+        }
+        if (status.behind > 0) {
+          statusHtml += `<span class="git-status-item behind">${status.behind} behind</span>`;
+        }
+
+        statusEl.innerHTML = statusHtml;
+
+        // Update changed files list
+        const filesEl = document.getElementById('changedFilesList');
+        if (status.changedFiles && status.changedFiles.length > 0) {
+          filesEl.style.display = 'block';
+          filesEl.innerHTML = status.changedFiles.map(f => `
+            <div class="file-item">
+              <span class="file-status ${f.status}">${f.status}</span>
+              <span>${f.file}</span>
+            </div>
+          `).join('');
+        } else {
+          filesEl.style.display = 'none';
+        }
+
+        // Update button states
+        document.getElementById('btnShowCommit').disabled = status.clean;
+        document.getElementById('btnPush').disabled = status.ahead === 0 && status.clean;
+
+        // Update commit log
+        const logEl = document.getElementById('commitLog');
+        if (log.commits && log.commits.length > 0) {
+          logEl.innerHTML = log.commits.map(c => `
+            <div class="commit-item">
+              <span class="commit-hash">${c.hash}</span>
+              <span class="commit-message">${c.message}</span>
+              <span class="commit-date">${c.date}</span>
+            </div>
+          `).join('');
+        } else {
+          logEl.innerHTML = '<div style="color:#666">No commits yet</div>';
+        }
+
+      } catch (err) {
+        console.error('Failed to load git status:', err);
+      }
+    }
+
+    function showCommitForm() {
+      document.getElementById('commitForm').style.display = 'block';
+      document.getElementById('gitActions').style.display = 'none';
+      document.getElementById('commitMessage').focus();
+    }
+
+    function hideCommitForm() {
+      document.getElementById('commitForm').style.display = 'none';
+      document.getElementById('gitActions').style.display = 'flex';
+      document.getElementById('commitMessage').value = '';
+    }
+
+    async function commitChanges() {
+      const message = document.getElementById('commitMessage').value.trim();
+      if (!message) {
+        addLog('Please enter a commit message', 'error');
+        return;
+      }
+
+      const repo = selectedRepo || activeRepo;
+      if (!repo) {
+        addLog('No repository selected', 'error');
+        return;
+      }
+
+      try {
+        const res = await fetch(`/api/repos/${repo}/git/commit`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ message })
+        });
+
+        const data = await res.json();
+        if (res.ok) {
+          addLog(`Committed: ${data.hash} - ${message}`, 'success');
+          hideCommitForm();
+          await loadGitStatus(repo);
+          loadRepos();
+        } else {
+          addLog('Commit failed: ' + data.error, 'error');
+        }
+      } catch (err) {
+        addLog('Commit failed: ' + err.message, 'error');
+      }
+    }
+
+    async function pushChanges() {
+      const repo = selectedRepo || activeRepo;
+      if (!repo) {
+        addLog('No repository selected', 'error');
+        return;
+      }
+
+      try {
+        addLog('Pushing to remote...', 'info');
+        const res = await fetch(`/api/repos/${repo}/git/push`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ setUpstream: true })
+        });
+
+        const data = await res.json();
+        if (res.ok) {
+          addLog(`Pushed to ${data.branch}`, 'success');
+          await loadGitStatus(repo);
+        } else {
+          addLog('Push failed: ' + data.error, 'error');
+        }
+      } catch (err) {
+        addLog('Push failed: ' + err.message, 'error');
+      }
+    }
+
+    async function pullChanges() {
+      const repo = selectedRepo || activeRepo;
+      if (!repo) {
+        addLog('No repository selected', 'error');
+        return;
+      }
+
+      try {
+        addLog('Pulling from remote...', 'info');
+        const res = await fetch(`/api/repos/${repo}/git/pull`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' }
+        });
+
+        const data = await res.json();
+        if (res.ok) {
+          addLog('Pull successful', 'success');
+          await loadGitStatus(repo);
+          loadRepos();
+        } else {
+          addLog('Pull failed: ' + data.error, 'error');
+        }
+      } catch (err) {
+        addLog('Pull failed: ' + err.message, 'error');
+      }
+    }
+
+    async function switchBranch(branch) {
+      const repo = selectedRepo || activeRepo;
+      if (!repo || !branch) return;
+
+      try {
+        const res = await fetch(`/api/repos/${repo}/git/checkout`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ branch })
+        });
+
+        const data = await res.json();
+        if (res.ok) {
+          addLog(`Switched to branch: ${branch}`, 'success');
+          await loadGitStatus(repo);
+        } else {
+          addLog('Branch switch failed: ' + data.error, 'error');
+        }
+      } catch (err) {
+        addLog('Branch switch failed: ' + err.message, 'error');
+      }
+    }
+
+    function showNewBranchForm() {
+      document.getElementById('newBranchForm').style.display = 'block';
+      document.getElementById('newBranchName').focus();
+    }
+
+    async function createBranch() {
+      const branchName = document.getElementById('newBranchName').value.trim();
+      if (!branchName) {
+        addLog('Please enter a branch name', 'error');
+        return;
+      }
+
+      const repo = selectedRepo || activeRepo;
+      if (!repo) {
+        addLog('No repository selected', 'error');
+        return;
+      }
+
+      try {
+        const res = await fetch(`/api/repos/${repo}/git/checkout`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ branch: branchName, create: true })
+        });
+
+        const data = await res.json();
+        if (res.ok) {
+          addLog(`Created and switched to branch: ${branchName}`, 'success');
+          document.getElementById('newBranchForm').style.display = 'none';
+          document.getElementById('newBranchName').value = '';
+          await loadGitStatus(repo);
+        } else {
+          addLog('Branch creation failed: ' + data.error, 'error');
+        }
+      } catch (err) {
+        addLog('Branch creation failed: ' + err.message, 'error');
+      }
+    }
+
+    // Update loadRepos to also populate the dropdown
+    const originalLoadRepos = loadRepos;
+    loadRepos = async function() {
+      const res = await fetch('/api/repos');
+      const repos = await res.json();
+
+      // Populate header dropdown
+      const select = document.getElementById('activeRepoSelect');
+      const currentValue = select.value;
+      select.innerHTML = '<option value="">Select repository...</option>' +
+        repos.map(repo => `<option value="${repo.name}">${repo.name}</option>`).join('');
+
+      // Restore selection if it still exists
+      if (currentValue && repos.find(r => r.name === currentValue)) {
+        select.value = currentValue;
+      }
+
+      // Render repo list in tab
+      const list = document.getElementById('repoList');
+
+      if (repos.length === 0) {
+        list.innerHTML = '<div class="empty-state">No repositories yet</div>';
+        return;
+      }
+
+      list.innerHTML = repos.map(repo => {
+        let badge = '';
+        let progress = '';
+        if (repo.prd && repo.prd.userStories) {
+          const total = repo.prd.userStories.length;
+          const done = repo.prd.userStories.filter(s => s.passes).length;
+          const pct = total > 0 ? Math.round(done / total * 100) : 0;
+          if (done === total && total > 0) {
+            badge = '<span class="badge ready">Complete</span>';
+          } else if (done > 0) {
+            badge = `<span class="badge partial">${done}/${total}</span>`;
+          } else if (total > 0) {
+            badge = `<span class="badge">0/${total}</span>`;
+          }
+          progress = `<div class="progress-mini"><div class="progress-mini-fill" style="width:${pct}%"></div></div>`;
+        }
+        return `
+          <div class="repo-item" onclick="openTask('${repo.name}', ${JSON.stringify(repo.prd).replace(/"/g, '&quot;')})">
+            <div style="flex:1">
+              <div class="repo-name">${repo.name} ${badge}</div>
+              ${repo.prd ? `<div style="font-size:12px;color:#888;margin-top:4px">${repo.prd.featureName || ''}</div>` : ''}
+              ${progress}
+            </div>
+            <span style="color:#666">&#8250;</span>
+          </div>
+        `;
+      }).join('');
+    };
+
+    // Update openTask to load git status
+    const originalOpenTask = openTask;
+    openTask = function(repoName, prd) {
+      selectedRepo = repoName;
+      currentPrd = prd;
+      document.getElementById('modalRepo').textContent = repoName;
+
+      // Set the header dropdown to match
+      document.getElementById('activeRepoSelect').value = repoName;
+      activeRepo = repoName;
+
+      // Load git status for modal
+      loadGitStatus(repoName);
+
+      if (prd && prd.userStories && prd.userStories.length > 0) {
+        showStories();
+        renderStories(prd);
+      } else {
+        showNewTask();
+        document.getElementById('backToStories').style.display = 'none';
+      }
+
+      document.getElementById('taskModal').classList.add('active');
+    };
+
+    // Handle git-related WebSocket messages
+    const originalHandleMessage = handleMessage;
+    handleMessage = function(data) {
+      switch(data.type) {
+        case 'git_commit':
+          addLog(`[${data.repo}] Committed: ${data.hash} - ${data.message}`, 'success');
+          if (data.repo === (selectedRepo || activeRepo)) {
+            loadGitStatus(data.repo);
+          }
+          break;
+        case 'git_push':
+          addLog(`[${data.repo}] Pushed to ${data.branch}`, 'success');
+          if (data.repo === (selectedRepo || activeRepo)) {
+            loadGitStatus(data.repo);
+          }
+          break;
+        case 'git_pull':
+          addLog(`[${data.repo}] Pulled from remote`, 'success');
+          if (data.repo === (selectedRepo || activeRepo)) {
+            loadGitStatus(data.repo);
+          }
+          break;
+        default:
+          // Call original handler for other message types
+          originalHandleMessage(data);
+      }
+    };
+
+    // GitHub App Settings
+    async function loadGitHubSettings() {
+      try {
+        const res = await fetch('/api/settings/github');
+        const data = await res.json();
+
+        document.getElementById('githubAppId').value = data.appId || '';
+        document.getElementById('githubInstallationId').value = data.installationId || '';
+
+        // Update status indicator
+        const statusEl = document.getElementById('githubAuthStatus');
+        if (data.privateKeyConfigured && data.appId && data.installationId) {
+          statusEl.innerHTML = '<span class="git-status-item clean">GitHub App Configured</span>';
+        } else if (data.hasToken) {
+          statusEl.innerHTML = '<span class="git-status-item ahead">Using Personal Access Token</span>';
+        } else {
+          statusEl.innerHTML = '<span class="git-status-item changes">Not Configured</span>';
+        }
+      } catch (err) {
+        console.error('Failed to load GitHub settings:', err);
+      }
+    }
+
+    async function saveGitHubSettings() {
+      const appId = document.getElementById('githubAppId').value.trim();
+      const installationId = document.getElementById('githubInstallationId').value.trim();
+      const privateKey = document.getElementById('githubPrivateKey').value.trim();
+
+      try {
+        const res = await fetch('/api/settings/github', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ appId, installationId, privateKey: privateKey || undefined })
+        });
+
+        if (res.ok) {
+          addLog('GitHub App settings saved', 'success');
+          document.getElementById('githubPrivateKey').value = ''; // Clear for security
+          loadGitHubSettings();
+        } else {
+          const err = await res.json();
+          addLog('Failed to save settings: ' + err.error, 'error');
+        }
+      } catch (err) {
+        addLog('Failed to save settings: ' + err.message, 'error');
+      }
+    }
+
+    async function testGitHubConnection() {
+      try {
+        addLog('Testing GitHub connection...', 'info');
+        const res = await fetch('/api/settings/github/test', { method: 'POST' });
+        const data = await res.json();
+
+        if (data.success) {
+          addLog(data.message, 'success');
+        } else {
+          addLog(data.message, 'error');
+        }
+      } catch (err) {
+        addLog('Connection test failed: ' + err.message, 'error');
+      }
+    }
+
     // Initialize
     connectWS();
     loadRepos();
     loadJobs();
     updateCosts();
+    loadGitHubSettings();
 
     // Refresh periodically
     setInterval(() => {
       loadRepos();
       loadJobs();
       updateCosts();
+      // Also refresh git status for active repo
+      if (activeRepo) {
+        loadGitStatus(activeRepo);
+      }
     }, 10000);
   </script>
 </body>
