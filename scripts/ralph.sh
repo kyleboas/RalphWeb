@@ -196,7 +196,8 @@ EOF
     if [ "$TOOL" = "claude" ]; then
         if command -v claude &> /dev/null; then
             cd "$PROJECT_ROOT"
-            RESULT=$(echo "$PROMPT" | claude -p . --print 2>&1) || true
+            # Grant permissions for reading, writing, and git operations
+            RESULT=$(echo "$PROMPT" | claude -p . --print --allowed-tools "Read Write Edit Bash(git:*) Bash(npm:*)" 2>&1) || true
             echo "$RESULT" | tee -a "$LOG_FILE"
         else
             log "Claude CLI not found. Running in simulation mode."
