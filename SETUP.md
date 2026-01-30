@@ -37,10 +37,6 @@ Configure these based on your needs:
 
 ### GitHub Authentication
 
-Choose **one** of these approaches:
-
-#### Option A: Personal Access Token (Simpler)
-
 | Variable | Type | Description |
 |----------|------|-------------|
 | `GITHUB_TOKEN` | String | GitHub Personal Access Token (format: `ghp_...`) |
@@ -48,26 +44,10 @@ Choose **one** of these approaches:
 **How to create:**
 1. Visit https://github.com/settings/tokens
 2. Click "Generate new token (classic)"
-3. Select scopes: `repo`, `read:user`
+3. Select scopes: `repo` (Full control of private repositories)
 4. Copy the token and paste into Railway
 
-#### Option B: GitHub App Authentication (More Secure)
-
-| Variable | Type | Description |
-|----------|------|-------------|
-| `GITHUB_APP_ID` | String | Your GitHub App ID (numeric) |
-| `GITHUB_APP_INSTALLATION_ID` | String | Installation ID (numeric) |
-| `GITHUB_APP_PRIVATE_KEY_PATH` | String | Path to private key file: `/app/github-app-private-key.pem` |
-
-**How to set up GitHub App:**
-1. Visit https://github.com/settings/apps
-2. Click "New GitHub App"
-3. Fill in details:
-   - **Homepage URL:** Your Railway public URL
-   - **Webhook URL:** `https://<your-railway-url>/webhook`
-   - **Permissions:** `contents:read_write`, `pull_requests:read_write`
-4. Generate and download the private key
-5. In Railway, add the private key as a secret file (see below)
+**Note:** This token is used for cloning private repositories, committing changes, and pushing to remotes.
 
 ### Optional: OpenAI Integration
 
@@ -82,18 +62,9 @@ Choose **one** of these approaches:
 In Railway dashboard:
 
 1. Go to your project → Variables
-2. Add each variable:
-   - For standard variables: Click "Add Variable", enter name and value
-   - For multi-line secrets (GitHub App key): Use the "Raw editor" or create as a file
+2. Add each variable by clicking "Add Variable" and entering the name and value
 
-### 2. Add GitHub App Private Key (if using GitHub App auth)
-
-1. In Railway Variables, click "Create Secret File"
-2. **File path:** `/app/github-app-private-key.pem`
-3. **File content:** Paste the contents of your GitHub App private key
-4. Ensure the file has proper line breaks
-
-### 3. Example Configuration
+### 2. Example Configuration
 
 ```
 ANTHROPIC_API_KEY=sk-ant-XXXXXXXXXXXXXXXXXXXX
@@ -102,17 +73,6 @@ PORT=3000
 REPOS_DIR=/tmp/repos
 MANAGER_MODEL=claude-3-opus-20240229
 INTERN_MODEL=claude-3-haiku-20240307
-```
-
-Or with GitHub App:
-
-```
-ANTHROPIC_API_KEY=sk-ant-XXXXXXXXXXXXXXXXXXXX
-GITHUB_APP_ID=123456
-GITHUB_APP_INSTALLATION_ID=789101
-GITHUB_APP_PRIVATE_KEY_PATH=/app/github-app-private-key.pem
-PORT=3000
-REPOS_DIR=/tmp/repos
 ```
 
 ## Important Notes
@@ -136,9 +96,9 @@ After deployment, verify everything works:
 | Error | Solution |
 |-------|----------|
 | "ANTHROPIC_API_KEY not found" | Add `ANTHROPIC_API_KEY` to Railway variables |
-| Cannot clone private repo | Add `GITHUB_TOKEN` or set up GitHub App |
+| Cannot clone private repo | Add `GITHUB_TOKEN` to Railway variables |
 | Permission denied writing to repos | Change `REPOS_DIR` to `/tmp/repos` |
-| GitHub operations fail | Verify token has `repo` scope or GitHub App has correct permissions |
+| GitHub operations fail | Verify token has `repo` scope (Full control of private repositories) |
 
 ## Cost Tracking
 

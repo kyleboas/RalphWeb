@@ -1,136 +1,15 @@
 const express = require('express');
 const { WebSocketServer } = require('ws');
 const http = require('http');
-const https = require('https');
 const path = require('path');
 const fs = require('fs');
-const crypto = require('crypto');
 const { spawn, exec } = require('child_process');
 
 require('dotenv').config();
 
-// GitHub App Configuration
-let githubAppConfig = {
-  appId: process.env.GITHUB_APP_ID || '',
-  privateKeyPath: process.env.GITHUB_APP_PRIVATE_KEY_PATH || '',
-  installationId: process.env.GITHUB_APP_INSTALLATION_ID || ''
-};
-
-// Cache for GitHub App installation token
-let installationTokenCache = {
-  token: null,
-  expiresAt: null
-};
-
-// Generate JWT for GitHub App
-function generateGitHubAppJWT() {
-  if (!githubAppConfig.appId || !githubAppConfig.privateKeyPath) {
-    return null;
-  }
-
-  try {
-    const privateKeyPath = path.resolve(githubAppConfig.privateKeyPath);
-    if (!fs.existsSync(privateKeyPath)) {
-      console.error('GitHub App private key not found:', privateKeyPath);
-      return null;
-    }
-
-    const privateKey = fs.readFileSync(privateKeyPath, 'utf8');
-    const now = Math.floor(Date.now() / 1000);
-
-    const header = { alg: 'RS256', typ: 'JWT' };
-    const payload = {
-      iat: now - 60,
-      exp: now + 600, // 10 minutes
-      iss: githubAppConfig.appId
-    };
-
-    const base64Header = Buffer.from(JSON.stringify(header)).toString('base64url');
-    const base64Payload = Buffer.from(JSON.stringify(payload)).toString('base64url');
-    const signatureInput = `${base64Header}.${base64Payload}`;
-
-    const sign = crypto.createSign('RSA-SHA256');
-    sign.update(signatureInput);
-    const signature = sign.sign(privateKey, 'base64url');
-
-    return `${signatureInput}.${signature}`;
-  } catch (err) {
-    console.error('Failed to generate GitHub App JWT:', err.message);
-    return null;
-  }
-}
-
-// Get GitHub App installation token
-async function getInstallationToken() {
-  // Return cached token if still valid
-  if (installationTokenCache.token && installationTokenCache.expiresAt) {
-    const now = new Date();
-    if (now < new Date(installationTokenCache.expiresAt)) {
-      return installationTokenCache.token;
-    }
-  }
-
-  if (!githubAppConfig.installationId) {
-    return null;
-  }
-
-  const jwt = generateGitHubAppJWT();
-  if (!jwt) return null;
-
-  return new Promise((resolve, reject) => {
-    const options = {
-      hostname: 'api.github.com',
-      path: `/app/installations/${githubAppConfig.installationId}/access_tokens`,
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${jwt}`,
-        'Accept': 'application/vnd.github+json',
-        'User-Agent': 'RalphDashboard',
-        'X-GitHub-Api-Version': '2022-11-28'
-      }
-    };
-
-    const req = https.request(options, (res) => {
-      let data = '';
-      res.on('data', chunk => data += chunk);
-      res.on('end', () => {
-        try {
-          const json = JSON.parse(data);
-          if (json.token) {
-            installationTokenCache.token = json.token;
-            installationTokenCache.expiresAt = json.expires_at;
-            resolve(json.token);
-          } else {
-            console.error('GitHub App token error:', json.message || data);
-            resolve(null);
-          }
-        } catch (e) {
-          console.error('Failed to parse GitHub token response:', e.message);
-          resolve(null);
-        }
-      });
-    });
-
-    req.on('error', (err) => {
-      console.error('GitHub API request failed:', err.message);
-      resolve(null);
-    });
-
-    req.end();
-  });
-}
-
-// Configure git to use GitHub App token for a repo
-async function configureGitAuth(repoPath) {
-  const token = await getInstallationToken();
-  if (!token) {
-    // Fall back to GITHUB_TOKEN if set
-    if (process.env.GITHUB_TOKEN) {
-      return { token: process.env.GITHUB_TOKEN, method: 'pat' };
-    }
-    return { token: null, method: 'none' };
-  }
-  return { token, method: 'app' };
+// Configure git authentication using personal access token
+function getGitHubToken() {
+  return process.env.GITHUB_TOKEN || null;
 }
 
 const app = express();
@@ -560,10 +439,10 @@ app.post('/api/repos/:name/git/push', async (req, res) => {
       targetBranch = current.stdout;
     }
 
-    // Get authentication
-    const auth = await configureGitAuth(repoPath);
+    // Get authentication token
+    const token = getGitHubToken();
 
-    if (auth.token) {
+    if (token) {
       // Get the remote URL and modify it to include the token
       const remoteUrl = await execGit(repoPath, 'remote get-url origin');
       let url = remoteUrl.stdout;
@@ -575,7 +454,7 @@ app.post('/api/repos/:name/git/push', async (req, res) => {
 
       // Add token authentication to URL
       if (url.startsWith('https://')) {
-        const authUrl = url.replace('https://', `https://x-access-token:${auth.token}@`);
+        const authUrl = url.replace('https://', `https://x-access-token:${token}@`);
 
         // Push with or without upstream tracking using authenticated URL
         const pushArgs = setUpstream
@@ -656,58 +535,21 @@ app.get('/api/repos/:name/git/log', async (req, res) => {
   }
 });
 
-// API: Get GitHub App settings (masked)
+// API: Get GitHub token status
 app.get('/api/settings/github', (req, res) => {
-  const privateKeyExists = githubAppConfig.privateKeyPath &&
-    fs.existsSync(path.resolve(githubAppConfig.privateKeyPath));
-
   res.json({
-    appId: githubAppConfig.appId || '',
-    installationId: githubAppConfig.installationId || '',
-    privateKeyConfigured: privateKeyExists,
     hasToken: !!process.env.GITHUB_TOKEN
   });
 });
 
-// API: Update GitHub App settings
-app.post('/api/settings/github', (req, res) => {
-  const { appId, installationId, privateKey } = req.body;
-
-  // Update config
-  if (appId !== undefined) {
-    githubAppConfig.appId = appId;
-  }
-  if (installationId !== undefined) {
-    githubAppConfig.installationId = installationId;
-  }
-
-  // Save private key if provided
-  if (privateKey) {
-    const keyPath = path.join(__dirname, 'github-app-private-key.pem');
-    try {
-      fs.writeFileSync(keyPath, privateKey, { mode: 0o600 });
-      githubAppConfig.privateKeyPath = keyPath;
-    } catch (err) {
-      return res.status(500).json({ error: 'Failed to save private key' });
-    }
-  }
-
-  // Clear cached token when settings change
-  installationTokenCache = { token: null, expiresAt: null };
-
-  res.json({ success: true });
-});
-
-// API: Test GitHub App connection
+// API: Test GitHub token
 app.post('/api/settings/github/test', async (req, res) => {
   try {
-    const token = await getInstallationToken();
+    const token = getGitHubToken();
     if (token) {
-      res.json({ success: true, message: 'GitHub App authentication successful' });
-    } else if (process.env.GITHUB_TOKEN) {
-      res.json({ success: true, message: 'Using Personal Access Token' });
+      res.json({ success: true, message: 'GitHub Personal Access Token configured' });
     } else {
-      res.json({ success: false, message: 'No authentication configured' });
+      res.json({ success: false, message: 'No GITHUB_TOKEN configured' });
     }
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
