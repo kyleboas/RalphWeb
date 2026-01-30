@@ -594,6 +594,70 @@
     .settings-status {
       margin-bottom: 12px;
     }
+
+    .github-repo-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 12px;
+      background: rgba(255,255,255,0.05);
+      border-radius: 12px;
+      transition: transform 0.2s, background 0.2s;
+    }
+
+    .github-repo-item:hover {
+      background: rgba(255,255,255,0.08);
+    }
+
+    .github-repo-info {
+      flex: 1;
+      min-width: 0;
+    }
+
+    .github-repo-name {
+      font-weight: 500;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .github-repo-owner {
+      font-size: 12px;
+      color: #666;
+    }
+
+    .github-repo-desc {
+      font-size: 12px;
+      color: #888;
+      margin-top: 4px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .badge.private { background: rgba(248, 113, 113, 0.3); color: #f87171; }
+    .badge.added { background: rgba(74, 222, 128, 0.3); color: #4ade80; }
+
+    .btn-add {
+      padding: 6px 12px;
+      font-size: 12px;
+      background: linear-gradient(135deg, #22c55e 0%, #16a34a 100%);
+      color: white;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+
+    .btn-add:disabled {
+      background: rgba(255,255,255,0.1);
+      color: #666;
+      cursor: default;
+    }
+
+    .btn-add:not(:disabled):active {
+      transform: scale(0.95);
+    }
   </style>
 </head>
 <body>
@@ -624,7 +688,18 @@
     <!-- Repos Tab -->
     <div class="tab-content active" id="tab-repos">
       <div class="section">
-        <div class="section-title">Clone Repository</div>
+        <div class="section-title" style="display:flex; justify-content:space-between; align-items:center;">
+          <span>GitHub Repositories</span>
+          <button class="btn btn-outline" style="padding:4px 10px; font-size:12px" onclick="loadGitHubRepos()">Refresh</button>
+        </div>
+        <div id="githubRepoStatus" style="font-size:12px; color:#888; margin-bottom:8px"></div>
+        <div class="repo-list" id="githubRepoList">
+          <div class="empty-state">Loading...</div>
+        </div>
+      </div>
+
+      <div class="section">
+        <div class="section-title">Clone Repository Manually</div>
         <div class="input-group">
           <input type="text" id="cloneUrl" placeholder="https://github.com/user/repo.git">
           <button class="btn btn-primary" onclick="cloneRepo()">Clone</button>
@@ -632,7 +707,7 @@
       </div>
 
       <div class="section">
-        <div class="section-title">Repositories</div>
+        <div class="section-title">Local Repositories</div>
         <div class="repo-list" id="repoList">
           <div class="empty-state">No repositories yet</div>
         </div>
@@ -684,50 +759,43 @@
     <!-- Settings Tab -->
     <div class="tab-content" id="tab-settings">
       <div class="section">
-        <div class="section-title">GitHub App Configuration</div>
+        <div class="section-title">GitHub Personal Access Token</div>
         <p style="font-size:13px; color:#888; margin-bottom:16px">
-          Configure a GitHub App to enable push/commit to your repositories.
-          <a href="https://github.com/settings/apps/new" target="_blank" style="color:#60a5fa">Create a GitHub App</a>
+          Your GITHUB_TOKEN is configured via environment variable. This token is used to:
         </p>
+        <ul style="font-size:13px; color:#aaa; margin:0 0 16px 0; padding-left:20px">
+          <li style="margin-bottom:6px">Auto-discover repositories you have access to</li>
+          <li style="margin-bottom:6px">Clone private repositories</li>
+          <li style="margin-bottom:6px">Push commits to GitHub</li>
+        </ul>
 
         <div class="settings-status" id="githubAuthStatus">
           <span class="git-status-item">Checking...</span>
         </div>
 
+        <div id="githubUserInfo" style="display:none; margin-top:12px; padding:12px; background:rgba(255,255,255,0.05); border-radius:8px">
+          <div style="display:flex; align-items:center; gap:10px">
+            <img id="githubUserAvatar" style="width:32px; height:32px; border-radius:50%" src="" alt="">
+            <div>
+              <div id="githubUserName" style="font-weight:500"></div>
+              <div id="githubUserLogin" style="font-size:12px; color:#888"></div>
+            </div>
+          </div>
+        </div>
+
         <div style="margin-top:16px">
-          <label style="font-size:13px; color:#888; display:block; margin-bottom:6px">App ID</label>
-          <input type="text" id="githubAppId" placeholder="123456">
-        </div>
-
-        <div style="margin-top:12px">
-          <label style="font-size:13px; color:#888; display:block; margin-bottom:6px">Installation ID</label>
-          <input type="text" id="githubInstallationId" placeholder="12345678">
-          <p style="font-size:11px; color:#666; margin-top:4px">
-            Find this in the URL when viewing your app installation: github.com/settings/installations/<strong>ID</strong>
-          </p>
-        </div>
-
-        <div style="margin-top:12px">
-          <label style="font-size:13px; color:#888; display:block; margin-bottom:6px">Private Key (.pem)</label>
-          <textarea id="githubPrivateKey" placeholder="-----BEGIN RSA PRIVATE KEY-----&#10;...&#10;-----END RSA PRIVATE KEY-----" style="min-height:120px; font-family:monospace; font-size:11px"></textarea>
-          <p style="font-size:11px; color:#666; margin-top:4px">
-            Generate a private key in your GitHub App settings
-          </p>
-        </div>
-
-        <div style="margin-top:16px; display:flex; gap:8px">
-          <button class="btn btn-primary" style="flex:1" onclick="saveGitHubSettings()">Save Settings</button>
-          <button class="btn btn-outline" onclick="testGitHubConnection()">Test Connection</button>
+          <button class="btn btn-primary" style="width:100%" onclick="testGitHubConnection()">Test Connection</button>
         </div>
       </div>
 
       <div class="section">
-        <div class="section-title">Required Permissions</div>
-        <ul style="font-size:13px; color:#aaa; margin:0; padding-left:20px">
-          <li style="margin-bottom:8px"><strong>Contents:</strong> Read and write</li>
-          <li style="margin-bottom:8px"><strong>Metadata:</strong> Read-only</li>
-          <li style="margin-bottom:8px"><strong>Pull requests:</strong> Read and write (optional)</li>
-        </ul>
+        <div class="section-title">Setup Instructions</div>
+        <ol style="font-size:13px; color:#aaa; margin:0; padding-left:20px">
+          <li style="margin-bottom:8px">Go to <a href="https://github.com/settings/tokens" target="_blank" style="color:#60a5fa">GitHub Settings > Tokens</a></li>
+          <li style="margin-bottom:8px">Generate a new token (classic) with <strong>repo</strong> scope</li>
+          <li style="margin-bottom:8px">Set <code style="background:rgba(255,255,255,0.1); padding:2px 6px; border-radius:4px">GITHUB_TOKEN=ghp_...</code> in your environment</li>
+          <li style="margin-bottom:8px">Restart the server</li>
+        </ol>
       </div>
     </div>
   </div>
@@ -1469,21 +1537,16 @@
       }
     };
 
-    // GitHub App Settings
+    // GitHub Settings
     async function loadGitHubSettings() {
       try {
         const res = await fetch('/api/settings/github');
         const data = await res.json();
 
-        document.getElementById('githubAppId').value = data.appId || '';
-        document.getElementById('githubInstallationId').value = data.installationId || '';
-
         // Update status indicator
         const statusEl = document.getElementById('githubAuthStatus');
-        if (data.privateKeyConfigured && data.appId && data.installationId) {
-          statusEl.innerHTML = '<span class="git-status-item clean">GitHub App Configured</span>';
-        } else if (data.hasToken) {
-          statusEl.innerHTML = '<span class="git-status-item ahead">Using Personal Access Token</span>';
+        if (data.hasToken) {
+          statusEl.innerHTML = '<span class="git-status-item clean">Token Configured</span>';
         } else {
           statusEl.innerHTML = '<span class="git-status-item changes">Not Configured</span>';
         }
@@ -1492,32 +1555,13 @@
       }
     }
 
-    async function saveGitHubSettings() {
-      const appId = document.getElementById('githubAppId').value.trim();
-      const installationId = document.getElementById('githubInstallationId').value.trim();
-      const privateKey = document.getElementById('githubPrivateKey').value.trim();
-
-      try {
-        const res = await fetch('/api/settings/github', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ appId, installationId, privateKey: privateKey || undefined })
-        });
-
-        if (res.ok) {
-          addLog('GitHub App settings saved', 'success');
-          document.getElementById('githubPrivateKey').value = ''; // Clear for security
-          loadGitHubSettings();
-        } else {
-          const err = await res.json();
-          addLog('Failed to save settings: ' + err.error, 'error');
-        }
-      } catch (err) {
-        addLog('Failed to save settings: ' + err.message, 'error');
-      }
-    }
-
     async function testGitHubConnection() {
+      const statusEl = document.getElementById('githubAuthStatus');
+      const userInfoEl = document.getElementById('githubUserInfo');
+
+      statusEl.innerHTML = '<span class="git-status-item">Testing...</span>';
+      userInfoEl.style.display = 'none';
+
       try {
         addLog('Testing GitHub connection...', 'info');
         const res = await fetch('/api/settings/github/test', { method: 'POST' });
@@ -1525,17 +1569,131 @@
 
         if (data.success) {
           addLog(data.message, 'success');
+          statusEl.innerHTML = '<span class="git-status-item clean">Connected</span>';
+
+          // Show user info
+          if (data.user) {
+            document.getElementById('githubUserAvatar').src = data.user.avatar;
+            document.getElementById('githubUserName').textContent = data.user.name || data.user.login;
+            document.getElementById('githubUserLogin').textContent = '@' + data.user.login;
+            userInfoEl.style.display = 'block';
+          }
         } else {
           addLog(data.message, 'error');
+          statusEl.innerHTML = '<span class="git-status-item changes">Connection Failed</span>';
         }
       } catch (err) {
         addLog('Connection test failed: ' + err.message, 'error');
+        statusEl.innerHTML = '<span class="git-status-item changes">Error</span>';
+      }
+    }
+
+    // GitHub Repos - Auto add feature
+    let githubRepos = [];
+
+    async function loadGitHubRepos() {
+      const list = document.getElementById('githubRepoList');
+      const status = document.getElementById('githubRepoStatus');
+
+      list.innerHTML = '<div class="empty-state">Loading repositories from GitHub...</div>';
+      status.textContent = '';
+
+      try {
+        const res = await fetch('/api/github/repos');
+
+        if (res.status === 401) {
+          list.innerHTML = '<div class="empty-state">Configure GITHUB_TOKEN to auto-discover repositories</div>';
+          status.textContent = '';
+          return;
+        }
+
+        if (!res.ok) {
+          const err = await res.json();
+          throw new Error(err.error || 'Failed to fetch repositories');
+        }
+
+        githubRepos = await res.json();
+
+        if (githubRepos.length === 0) {
+          list.innerHTML = '<div class="empty-state">No repositories found</div>';
+          status.textContent = '';
+          return;
+        }
+
+        const notCloned = githubRepos.filter(r => !r.cloned);
+        const cloned = githubRepos.filter(r => r.cloned);
+
+        status.textContent = `${githubRepos.length} repos available, ${cloned.length} added`;
+
+        // Show repos not yet cloned first, then already cloned ones
+        const sortedRepos = [...notCloned, ...cloned];
+
+        list.innerHTML = sortedRepos.map(repo => `
+          <div class="github-repo-item">
+            <div class="github-repo-info">
+              <div class="github-repo-name">
+                ${repo.name}
+                ${repo.private ? '<span class="badge private">Private</span>' : ''}
+                ${repo.cloned ? '<span class="badge added">Added</span>' : ''}
+              </div>
+              <div class="github-repo-owner">${repo.owner}</div>
+              ${repo.description ? `<div class="github-repo-desc">${repo.description}</div>` : ''}
+            </div>
+            <button
+              class="btn-add"
+              onclick="addGitHubRepo('${repo.fullName}')"
+              ${repo.cloned ? 'disabled' : ''}
+            >
+              ${repo.cloned ? 'Added' : 'Add'}
+            </button>
+          </div>
+        `).join('');
+
+      } catch (err) {
+        list.innerHTML = `<div class="empty-state" style="color:#f87171">Error: ${err.message}</div>`;
+        status.textContent = '';
+        console.error('Failed to load GitHub repos:', err);
+      }
+    }
+
+    async function addGitHubRepo(fullName) {
+      const btn = event.target;
+      const originalText = btn.textContent;
+      btn.textContent = 'Adding...';
+      btn.disabled = true;
+
+      try {
+        const res = await fetch('/api/github/repos/add', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ fullName })
+        });
+
+        const data = await res.json();
+
+        if (res.ok) {
+          addLog(`Added repository: ${fullName}`, 'success');
+          btn.textContent = 'Added';
+          // Update the cloned status in our local array
+          const repo = githubRepos.find(r => r.fullName === fullName);
+          if (repo) repo.cloned = true;
+          // Refresh both lists
+          loadRepos();
+          loadGitHubRepos();
+        } else {
+          throw new Error(data.error || 'Failed to add repository');
+        }
+      } catch (err) {
+        addLog(`Failed to add ${fullName}: ${err.message}`, 'error');
+        btn.textContent = originalText;
+        btn.disabled = false;
       }
     }
 
     // Initialize
     connectWS();
     loadRepos();
+    loadGitHubRepos();
     loadJobs();
     updateCosts();
     loadGitHubSettings();
