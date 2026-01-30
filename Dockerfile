@@ -1,13 +1,13 @@
 # Use Node.js 20 LTS (Debian-based)
 FROM node:20-bookworm-slim
 
-# Install Git and clean up to keep image small
+# Install Git (required for repository cloning and Git operations)
 RUN apt-get update && \
     apt-get install -y git && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
-# Install Claude CLI globally
+# Install Claude CLI globally (required for manager.sh to generate PRDs)
 RUN npm install -g @anthropic-ai/claude-code
 
 # Set working directory
@@ -16,17 +16,21 @@ WORKDIR /app
 # Copy package files
 COPY package*.json ./
 
-# Install production dependencies
+# Switched from 'npm ci' to 'npm install' to fix missing lockfile error
 RUN npm install --only=production
 
 # Copy application files
 COPY . .
 
-# Create directories (Railway Volume UI will mount over /tmp/repos if configured)
-RUN mkdir -p /tmp/repos /app/logs && \
-    chmod -R 755 /tmp/repos /app/logs
+# Create necessary directories with proper permissions
+# Note: When you mount a volume in Railway, it will mount over /app/data
+RUN mkdir -p /app/data /app/logs && \
+    chmod -R 755 /app/data /app/logs
 
-# Expose port (Railway overrides this via PORT env var, but good for documentation)
+# Set environment variable for repositories
+ENV REPOS_DIR=/app/data/repos
+
+# Expose port (Railway will override this with PORT env var)
 EXPOSE 3000
 
 # Health check

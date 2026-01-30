@@ -5,6 +5,7 @@ const https = require('https');
 const path = require('path');
 const fs = require('fs');
 const { spawn, exec } = require('child_process');
+const db = require('./db');
 
 require('dotenv').config();
 
@@ -62,7 +63,24 @@ const LOGS_DIR = path.join(__dirname, 'logs');
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
 });
 
-// Track active jobs
+// Initialize Database
+db.init();
+
+// Startup Recovery: Mark running jobs as interrupted
+try {
+  const jobs = db.getJobs();
+  const runningJobs = jobs.filter(j => j.status === 'running');
+  if (runningJobs.length > 0) {
+    console.log(`Found ${runningJobs.length} interrupted jobs. Marking as failed.`);
+    runningJobs.forEach(job => {
+      db.updateJob(job.id, { status: 'failed' });
+    });
+  }
+} catch (e) {
+  console.error('Startup recovery failed:', e);
+}
+
+// Track active jobs (runtime processes only)
 const activeJobs = new Map();
 let jobIdCounter = 1;
 
@@ -78,16 +96,12 @@ function broadcast(data) {
   });
 }
 
-// API: List repositories
+// API: List repositories (from DB)
 app.get('/api/repos', (req, res) => {
   try {
-    if (!fs.existsSync(REPOS_DIR)) {
-      return res.json([]);
-    }
-    const repos = fs.readdirSync(REPOS_DIR)
-      .filter(f => fs.statSync(path.join(REPOS_DIR, f)).isDirectory())
-      .map(name => {
-        const repoPath = path.join(REPOS_DIR, name);
+    const repos = db.getRepos().map(repo => {
+        // Hydrate with PRD info
+        const repoPath = repo.path;
         const hasPrd = fs.existsSync(path.join(repoPath, 'prd.json'));
         let prd = null;
         if (hasPrd) {
@@ -95,8 +109,8 @@ app.get('/api/repos', (req, res) => {
             prd = JSON.parse(fs.readFileSync(path.join(repoPath, 'prd.json'), 'utf8'));
           } catch (e) { /* ignore parse errors */ }
         }
-        return { name, path: repoPath, hasPrd, prd };
-      });
+        return { ...repo, hasPrd, prd };
+    });
     res.json(repos);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -137,18 +151,14 @@ app.post('/api/repos/:name/prd', (req, res) => {
   }
 });
 
-// API: Get active jobs
+// API: Get jobs (from DB)
 app.get('/api/jobs', (req, res) => {
-  const jobs = Array.from(activeJobs.entries()).map(([id, job]) => ({
-    id,
-    repo: job.repo,
-    type: job.type,
-    status: job.status,
-    iterations: job.iterations,
-    startTime: job.startTime,
-    cost: job.cost
-  }));
-  res.json(jobs);
+  try {
+    const jobs = db.getJobs();
+    res.json(jobs);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // API: Clone a repository
@@ -163,6 +173,9 @@ app.post('/api/repos/clone', (req, res) => {
 
   proc.on('close', code => {
     if (code === 0) {
+      try {
+        db.addRepo({ name: repoName, path: repoPath, url });
+      } catch (e) { console.error('Failed to add repo to DB', e); }
       res.json({ success: true, name: repoName, path: repoPath });
     } else {
       res.status(500).json({ error: 'Clone failed' });
@@ -182,19 +195,29 @@ app.post('/api/manager', (req, res) => {
     return res.status(404).json({ error: 'Repository not found' });
   }
 
-  const jobId = jobIdCounter++;
-  const job = {
+  // Create job in DB
+  const jobData = {
     repo,
     type: 'manager',
     status: 'running',
     iterations: 0,
     startTime: Date.now(),
-    cost: 0.15, // Estimated manager cost
-    process: null
+    cost: 0.15 // Estimated manager cost
   };
-  activeJobs.set(jobId, job);
 
-  broadcast({ type: 'job_started', jobId, job: { ...job, process: undefined } });
+  let job;
+  try {
+    job = db.createJob(jobData);
+  } catch (err) {
+    return res.status(500).json({ error: 'Failed to create job: ' + err.message });
+  }
+
+  const jobId = job.id;
+
+  // Track active process
+  activeJobs.set(jobId, { process: null });
+
+  broadcast({ type: 'job_started', jobId, job });
 
   // Run manager script
   const scriptPath = path.join(__dirname, 'scripts', 'manager.sh');
@@ -202,7 +225,9 @@ app.post('/api/manager', (req, res) => {
     env: { ...process.env }
   });
 
-  job.process = proc;
+  if (activeJobs.has(jobId)) {
+    activeJobs.get(jobId).process = proc;
+  }
 
   proc.stdout.on('data', data => {
     broadcast({ type: 'log', jobId, data: data.toString() });
@@ -213,8 +238,14 @@ app.post('/api/manager', (req, res) => {
   });
 
   proc.on('close', code => {
-    job.status = code === 0 ? 'completed' : 'failed';
-    broadcast({ type: 'job_completed', jobId, status: job.status });
+    const status = code === 0 ? 'completed' : 'failed';
+    try {
+      db.updateJob(jobId, { status });
+    } catch (e) {
+      console.error('Failed to update job status', e);
+    }
+    activeJobs.delete(jobId);
+    broadcast({ type: 'job_completed', jobId, status });
   });
 
   res.json({ jobId, message: 'Manager started' });
@@ -237,19 +268,29 @@ app.post('/api/ralph', (req, res) => {
     return res.status(400).json({ error: 'No prd.json found. Create a PRD first.' });
   }
 
-  const jobId = jobIdCounter++;
-  const job = {
+  // Create job in DB
+  const jobData = {
     repo,
     type: 'ralph',
     status: 'running',
     iterations: 0,
     startTime: Date.now(),
-    cost: 0,
-    process: null
+    cost: 0
   };
-  activeJobs.set(jobId, job);
 
-  broadcast({ type: 'job_started', jobId, job: { ...job, process: undefined } });
+  let job;
+  try {
+    job = db.createJob(jobData);
+  } catch (err) {
+    return res.status(500).json({ error: 'Failed to create job: ' + err.message });
+  }
+
+  const jobId = job.id;
+
+  // Track active process
+  activeJobs.set(jobId, { process: null });
+
+  broadcast({ type: 'job_started', jobId, job });
 
   // Run ralph loop script
   const scriptPath = path.join(__dirname, 'scripts', 'ralph.sh');
@@ -257,7 +298,13 @@ app.post('/api/ralph', (req, res) => {
     env: { ...process.env }
   });
 
-  job.process = proc;
+  if (activeJobs.has(jobId)) {
+    activeJobs.get(jobId).process = proc;
+  }
+
+  // Local state to track updates before DB commit
+  let currentIterations = 0;
+  let currentCost = 0;
 
   proc.stdout.on('data', data => {
     const text = data.toString();
@@ -266,9 +313,14 @@ app.post('/api/ralph', (req, res) => {
     // Track iterations
     const iterMatch = text.match(/Loop Iteration (\d+)/);
     if (iterMatch) {
-      job.iterations = parseInt(iterMatch[1]);
-      job.cost = job.iterations * 0.00255; // Cost per iteration
-      broadcast({ type: 'job_update', jobId, iterations: job.iterations, cost: job.cost });
+      currentIterations = parseInt(iterMatch[1]);
+      currentCost = currentIterations * 0.00255; // Cost per iteration
+
+      try {
+        db.updateJob(jobId, { iterations: currentIterations, cost: currentCost });
+      } catch (e) { console.error('Failed to update job progress', e); }
+
+      broadcast({ type: 'job_update', jobId, iterations: currentIterations, cost: currentCost });
     }
   });
 
@@ -277,8 +329,13 @@ app.post('/api/ralph', (req, res) => {
   });
 
   proc.on('close', code => {
-    job.status = code === 0 ? 'completed' : 'failed';
-    broadcast({ type: 'job_completed', jobId, status: job.status, cost: job.cost });
+    const status = code === 0 ? 'completed' : 'failed';
+    try {
+        db.updateJob(jobId, { status, iterations: currentIterations, cost: currentCost });
+    } catch (e) { console.error('Failed to update job status', e); }
+
+    activeJobs.delete(jobId);
+    broadcast({ type: 'job_completed', jobId, status, cost: currentCost });
   });
 
   res.json({ jobId, message: 'Ralph loop started' });
@@ -287,39 +344,58 @@ app.post('/api/ralph', (req, res) => {
 // API: Stop a job
 app.post('/api/jobs/:id/stop', (req, res) => {
   const jobId = parseInt(req.params.id);
-  const job = activeJobs.get(jobId);
 
-  if (!job) {
-    return res.status(404).json({ error: 'Job not found' });
-  }
+  // Check active jobs first
+  const activeJob = activeJobs.get(jobId);
 
-  if (job.process) {
-    job.process.kill('SIGTERM');
-    job.status = 'stopped';
+  if (activeJob && activeJob.process) {
+    activeJob.process.kill('SIGTERM');
+
+    try {
+        db.updateJob(jobId, { status: 'stopped' });
+    } catch (e) { console.error('Failed to update job status', e); }
+
+    activeJobs.delete(jobId);
     broadcast({ type: 'job_completed', jobId, status: 'stopped' });
+    return res.json({ success: true });
   }
 
-  res.json({ success: true });
+  // If not in active jobs, check DB to see if it exists
+  try {
+      const job = db.getJob(jobId);
+      if (!job) {
+          return res.status(404).json({ error: 'Job not found' });
+      }
+      // If it exists but not active, it's already stopped or done
+      res.json({ success: true, message: 'Job already stopped or completed' });
+  } catch (err) {
+      res.status(500).json({ error: err.message });
+  }
 });
 
 // API: Get cost summary
 app.get('/api/costs', (req, res) => {
-  let totalCost = 0;
-  let managerCalls = 0;
-  let ralphIterations = 0;
+  try {
+      const jobs = db.getJobs();
+      let totalCost = 0;
+      let managerCalls = 0;
+      let ralphIterations = 0;
 
-  activeJobs.forEach(job => {
-    totalCost += job.cost;
-    if (job.type === 'manager') managerCalls++;
-    if (job.type === 'ralph') ralphIterations += job.iterations;
-  });
+      jobs.forEach(job => {
+        totalCost += (job.cost || 0);
+        if (job.type === 'manager') managerCalls++;
+        if (job.type === 'ralph') ralphIterations += (job.iterations || 0);
+      });
 
-  res.json({
-    totalCost: totalCost.toFixed(4),
-    managerCalls,
-    ralphIterations,
-    budgetRemaining: (20 - totalCost).toFixed(2)
-  });
+      res.json({
+        totalCost: totalCost.toFixed(4),
+        managerCalls,
+        ralphIterations,
+        budgetRemaining: (20 - totalCost).toFixed(2)
+      });
+  } catch (err) {
+      res.status(500).json({ error: err.message });
+  }
 });
 
 // Helper: Execute git command in repo
@@ -616,9 +692,10 @@ app.get('/api/github/repos', async (req, res) => {
     const repos = await githubApiRequest('/user/repos?per_page=100&sort=updated&affiliation=owner,collaborator,organization_member', token);
 
     // Get list of already cloned repos
-    const clonedRepos = fs.existsSync(REPOS_DIR)
-      ? fs.readdirSync(REPOS_DIR).filter(f => fs.statSync(path.join(REPOS_DIR, f)).isDirectory())
-      : [];
+    let clonedRepoNames = [];
+    try {
+        clonedRepoNames = db.getRepos().map(r => r.name);
+    } catch (e) { console.error('Failed to get repos from DB', e); }
 
     // Map to simplified format with cloned status
     const repoList = repos.map(repo => ({
@@ -631,7 +708,7 @@ app.get('/api/github/repos', async (req, res) => {
       owner: repo.owner.login,
       updatedAt: repo.updated_at,
       defaultBranch: repo.default_branch,
-      cloned: clonedRepos.includes(repo.name)
+      cloned: clonedRepoNames.includes(repo.name)
     }));
 
     res.json(repoList);
@@ -671,6 +748,9 @@ app.post('/api/github/repos/add', async (req, res) => {
     if (code === 0) {
       // Update remote to use clean URL (without token) for display
       exec(`git remote set-url origin https://github.com/${fullName}.git`, { cwd: repoPath }, () => {
+        try {
+            db.addRepo({ name: repoName, path: repoPath, url: `https://github.com/${fullName}.git` });
+        } catch (e) { console.error('Failed to add repo to DB', e); }
         res.json({ success: true, name: repoName, path: repoPath });
       });
     } else {
@@ -683,16 +763,13 @@ app.post('/api/github/repos/add', async (req, res) => {
 wss.on('connection', ws => {
   console.log('Client connected');
 
-  // Send current state
-  const jobs = Array.from(activeJobs.entries()).map(([id, job]) => ({
-    id,
-    repo: job.repo,
-    type: job.type,
-    status: job.status,
-    iterations: job.iterations,
-    cost: job.cost
-  }));
-  ws.send(JSON.stringify({ type: 'init', jobs }));
+  // Send current state (from DB)
+  try {
+      const jobs = db.getJobs();
+      ws.send(JSON.stringify({ type: 'init', jobs }));
+  } catch (e) {
+      console.error('Error fetching jobs for WS init:', e);
+  }
 
   ws.on('close', () => console.log('Client disconnected'));
 });
