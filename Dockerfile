@@ -7,6 +7,9 @@ RUN apt-get update && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
+# Install Claude CLI globally (required for manager.sh to generate PRDs)
+RUN npm install -g @anthropic-ai/claude-code
+
 # Set working directory
 WORKDIR /app
 
