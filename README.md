@@ -175,7 +175,7 @@ npm start
 
 ### Cloud (Railway/Render)
 
-Deploy as a Docker container. Add volume for `/repos` persistence.
+Deploy as a Docker container. Add volume for `/app/data` persistence.
 
 ## License
 

@@ -23,8 +23,14 @@ RUN npm install --only=production
 COPY . .
 
 # Create necessary directories with proper permissions
-RUN mkdir -p /tmp/repos /app/logs && \
-    chmod -R 755 /tmp/repos /app/logs
+RUN mkdir -p /app/data /app/logs && \
+    chmod -R 755 /app/data /app/logs
+
+# Define volume for persistent data
+VOLUME /app/data
+
+# Set environment variable for repositories
+ENV REPOS_DIR=/app/data/repos
 
 # Expose port (Railway will override this with PORT env var)
 EXPOSE 3000

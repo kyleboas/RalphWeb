@@ -1,0 +1,76 @@
+{
+  "featureName": "Persistent Memory",
+  "branchName": "feature/persistent-memory",
+  "description": "Implement persistent memory using SQLite for Railway deployment",
+  "userStories": [
+    {
+      "id": "story-1",
+      "title": "Add SQLite dependency",
+      "description": "Add better-sqlite3 as a lightweight persistent database",
+      "acceptanceCriteria": [
+        "better-sqlite3 installed",
+        "package.json updated"
+      ],
+      "priority": 1,
+      "passes": false
+    },
+    {
+      "id": "story-2",
+      "title": "Create database schema",
+      "description": "Create database schema for jobs and repos tables",
+      "acceptanceCriteria": [
+        "Schema defined in db.js",
+        "jobs table created",
+        "repos table created"
+      ],
+      "priority": 2,
+      "passes": false
+    },
+    {
+      "id": "story-3",
+      "title": "Implement persistence functions",
+      "description": "Implement persistence functions for CRUD operations",
+      "acceptanceCriteria": [
+        "CRUD functions exported in db.js",
+        "Functions work correctly"
+      ],
+      "priority": 3,
+      "passes": false
+    },
+    {
+      "id": "story-4",
+      "title": "Integrate database into server.js",
+      "description": "Integrate the database into server.js replacing in-memory Maps",
+      "acceptanceCriteria": [
+        "server.js imports db.js",
+        "activeJobs Map usage reduced to runtime process management",
+        "Jobs API uses DB",
+        "Repos API uses DB"
+      ],
+      "priority": 4,
+      "passes": false
+    },
+    {
+      "id": "story-5",
+      "title": "Add startup recovery logic",
+      "description": "Add startup recovery logic to handle interrupted jobs",
+      "acceptanceCriteria": [
+        "Server checks for running jobs on start",
+        "Running jobs marked as interrupted"
+      ],
+      "priority": 5,
+      "passes": false
+    },
+    {
+      "id": "story-6",
+      "title": "Update Infrastructure",
+      "description": "Update Dockerfile and documentation for Railway volumes",
+      "acceptanceCriteria": [
+        "Dockerfile defines VOLUME /app/data",
+        "README updated"
+      ],
+      "priority": 6,
+      "passes": false
+    }
+  ]
+}
