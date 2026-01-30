@@ -1,6 +1,7 @@
 const express = require('express');
 const { WebSocketServer } = require('ws');
 const http = require('http');
+const https = require('https');
 const path = require('path');
 const fs = require('fs');
 const { spawn, exec } = require('child_process');
@@ -10,6 +11,42 @@ require('dotenv').config();
 // Configure git authentication using personal access token
 function getGitHubToken() {
   return process.env.GITHUB_TOKEN || null;
+}
+
+// Helper: Make GitHub API request
+function githubApiRequest(endpoint, token) {
+  return new Promise((resolve, reject) => {
+    const options = {
+      hostname: 'api.github.com',
+      path: endpoint,
+      method: 'GET',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'User-Agent': 'RalphDashboard/1.0',
+        'Accept': 'application/vnd.github+json',
+        'X-GitHub-Api-Version': '2022-11-28'
+      }
+    };
+
+    const req = https.request(options, (res) => {
+      let data = '';
+      res.on('data', chunk => data += chunk);
+      res.on('end', () => {
+        if (res.statusCode === 200) {
+          try {
+            resolve(JSON.parse(data));
+          } catch (e) {
+            reject(new Error('Failed to parse GitHub response'));
+          }
+        } else {
+          reject(new Error(`GitHub API error: ${res.statusCode} - ${data}`));
+        }
+      });
+    });
+
+    req.on('error', reject);
+    req.end();
+  });
 }
 
 const app = express();
@@ -546,14 +583,100 @@ app.get('/api/settings/github', (req, res) => {
 app.post('/api/settings/github/test', async (req, res) => {
   try {
     const token = getGitHubToken();
-    if (token) {
-      res.json({ success: true, message: 'GitHub Personal Access Token configured' });
-    } else {
-      res.json({ success: false, message: 'No GITHUB_TOKEN configured' });
+    if (!token) {
+      return res.json({ success: false, message: 'No GITHUB_TOKEN configured' });
     }
+
+    // Actually test the token by calling GitHub API
+    const user = await githubApiRequest('/user', token);
+    res.json({
+      success: true,
+      message: `Connected as ${user.login}`,
+      user: {
+        login: user.login,
+        name: user.name,
+        avatar: user.avatar_url
+      }
+    });
   } catch (err) {
-    res.status(500).json({ success: false, message: err.message });
+    res.status(500).json({ success: false, message: 'Token invalid: ' + err.message });
   }
+});
+
+// API: List available GitHub repositories from token
+app.get('/api/github/repos', async (req, res) => {
+  try {
+    const token = getGitHubToken();
+    if (!token) {
+      return res.status(401).json({ error: 'No GITHUB_TOKEN configured' });
+    }
+
+    // Fetch all repos the user has access to (owned + collaborator + org member)
+    // Using per_page=100 for efficiency, with affiliation filter for all accessible repos
+    const repos = await githubApiRequest('/user/repos?per_page=100&sort=updated&affiliation=owner,collaborator,organization_member', token);
+
+    // Get list of already cloned repos
+    const clonedRepos = fs.existsSync(REPOS_DIR)
+      ? fs.readdirSync(REPOS_DIR).filter(f => fs.statSync(path.join(REPOS_DIR, f)).isDirectory())
+      : [];
+
+    // Map to simplified format with cloned status
+    const repoList = repos.map(repo => ({
+      name: repo.name,
+      fullName: repo.full_name,
+      description: repo.description,
+      url: repo.clone_url,
+      sshUrl: repo.ssh_url,
+      private: repo.private,
+      owner: repo.owner.login,
+      updatedAt: repo.updated_at,
+      defaultBranch: repo.default_branch,
+      cloned: clonedRepos.includes(repo.name)
+    }));
+
+    res.json(repoList);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// API: Add (clone) a GitHub repository
+app.post('/api/github/repos/add', async (req, res) => {
+  const { fullName } = req.body;
+  if (!fullName) {
+    return res.status(400).json({ error: 'Repository fullName required (e.g., owner/repo)' });
+  }
+
+  const token = getGitHubToken();
+  if (!token) {
+    return res.status(401).json({ error: 'No GITHUB_TOKEN configured' });
+  }
+
+  const repoName = fullName.split('/').pop();
+  const repoPath = path.join(REPOS_DIR, repoName);
+
+  if (fs.existsSync(repoPath)) {
+    return res.status(400).json({ error: 'Repository already exists locally' });
+  }
+
+  // Use HTTPS URL with token for cloning (works for private repos)
+  const cloneUrl = `https://x-access-token:${token}@github.com/${fullName}.git`;
+
+  const proc = spawn('git', ['clone', cloneUrl, repoPath]);
+
+  let stderr = '';
+  proc.stderr.on('data', data => stderr += data.toString());
+
+  proc.on('close', code => {
+    if (code === 0) {
+      // Update remote to use clean URL (without token) for display
+      exec(`git remote set-url origin https://github.com/${fullName}.git`, { cwd: repoPath }, () => {
+        res.json({ success: true, name: repoName, path: repoPath });
+      });
+    } else {
+      res.status(500).json({ error: 'Clone failed: ' + stderr });
+    }
+  });
 });
 
 // WebSocket connection handler
